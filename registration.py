@@ -167,3 +167,7 @@ def registration_handler():
         },
         fallbacks=[]
     )
+def registration_handlers():
+    return [
+        registration_handler
+    ]
