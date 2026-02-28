@@ -15,7 +15,7 @@ from telegram.ext import (
     filters
 )
 
-from database import create_tables, activate_premium, user_exists
+from database import create_tables, activate_premium
 from registration import registration_handler, start_registration
 from matching import matching_handlers
 from admin import admin_handlers
