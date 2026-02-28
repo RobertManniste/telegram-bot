@@ -10,11 +10,9 @@ from telegram.ext import (
     filters
 )
 
-# Состояния
 AGE_CONFIRM, NAME, AGE, CITY, GENDER, LOOKING, PHOTO, BIO = range(8)
 
 
-# Подключение к БД
 def get_connection():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
 
@@ -29,7 +27,6 @@ def user_exists(telegram_id):
     return result is not None
 
 
-# Старт регистрации
 async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
 
@@ -37,24 +34,20 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Вы уже зарегистрированы ✅")
         return ConversationHandler.END
 
-    keyboard = [
-        ["✅ Мне есть 18 лет"],
-        ["❌ Мне нет 18"]
-    ]
+    keyboard = [["✅ Мне есть 18 лет"], ["❌ Мне нет 18"]]
 
     await update.message.reply_text(
-        "🔞 Сервис доступен только для лиц 18+.\nПодтвердите возраст:",
+        "🔞 Сервис доступен только 18+.\nПодтвердите возраст:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
     return AGE_CONFIRM
 
 
-# Подтверждение 18+
 async def confirm_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "нет" in update.message.text.lower():
         await update.message.reply_text(
-            "⛔ Доступ запрещён. Сервис доступен только 18+.",
+            "⛔ Доступ запрещён.",
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
@@ -66,23 +59,21 @@ async def confirm_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return NAME
 
 
-# Имя
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
     await update.message.reply_text("Сколько вам лет?")
     return AGE
 
 
-# Возраст
 async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text.isdigit():
-        await update.message.reply_text("Введите возраст числом.")
+        await update.message.reply_text("Введите число.")
         return AGE
 
     age = int(update.message.text)
 
     if age < 18:
-        await update.message.reply_text("⛔ Регистрация возможна только с 18 лет.")
+        await update.message.reply_text("Регистрация только 18+.")
         return ConversationHandler.END
 
     context.user_data["age"] = age
@@ -90,7 +81,6 @@ async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CITY
 
 
-# Город
 async def get_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["city"] = update.message.text
 
@@ -102,7 +92,6 @@ async def get_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return GENDER
 
 
-# Пол
 async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["gender"] = update.message.text
 
@@ -114,17 +103,15 @@ async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return LOOKING
 
 
-# Кого ищет
 async def get_looking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["looking_for"] = update.message.text
     await update.message.reply_text("Отправьте ваше фото:")
     return PHOTO
 
 
-# Фото
 async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
-        await update.message.reply_text("Пожалуйста, отправьте фото.")
+        await update.message.reply_text("Отправьте фото.")
         return PHOTO
 
     context.user_data["photo"] = update.message.photo[-1].file_id
@@ -132,7 +119,6 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BIO
 
 
-# Описание и сохранение
 async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["bio"] = update.message.text
 
@@ -143,7 +129,7 @@ async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO users 
+        INSERT INTO users
         (telegram_id, name, age, city, bio, photo, gender, looking_for, trial_end)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
@@ -162,12 +148,10 @@ async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
 
-    await update.message.reply_text("🎉 Регистрация завершена! Вам доступно 3 дня пробного периода.")
-
+    await update.message.reply_text("🎉 Регистрация завершена!")
     return ConversationHandler.END
 
 
-# Хендлер
 def registration_handler():
     return ConversationHandler(
         entry_points=[CommandHandler("register", start_registration)],
