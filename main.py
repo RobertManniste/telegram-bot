@@ -16,12 +16,26 @@ from matching import matching_handlers, browse_profiles
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💙 Добро пожаловать в Europe Match\n\n"
+        "Мы объединяем людей по всей Европе для знакомств, общения "
+        "и серьёзных отношений.\n"
+        "Найди свою вторую половинку быстро и безопасно 🌍\n\n"
+        "🎁 Вам доступен пробный период 3 дня!\n\n"
+        "В пробной версии:\n"
+        "• 20 сообщений в день\n"
+        "• Частичный доступ к фотографиям\n"
+        "• Возможность начать общение\n\n"
+        "💎 Premium открывает:\n"
+        "• Неограниченные сообщения\n"
+        "• Полный доступ ко всем фото\n"
+        "• Приоритет профиля в поиске\n"
+        "• Расширенные возможности общения\n\n"
+        "Открой больше возможностей 💙\n\n"
         "Выберите вариант:"
     )
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎁 Пробный период", callback_data="trial")],
-        [InlineKeyboardButton("💎 Купить Premium", callback_data="premium")],
+        [InlineKeyboardButton("💎 Купить Premium (999⭐)", callback_data="premium")],
         [InlineKeyboardButton("👀 Смотреть анкеты", callback_data="browse")]
     ])
 
@@ -33,7 +47,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "trial":
-        await context.bot.send_message(query.message.chat_id, "Введите /register")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Для регистрации введите /register"
+        )
 
     elif query.data == "premium":
         await send_premium_invoice(query, context)
