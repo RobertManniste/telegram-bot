@@ -1,4 +1,5 @@
 import os
+import datetime
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -10,98 +11,151 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
-    PreCheckoutQueryHandler
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    filters
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
 PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN")
 
-PRICE = 400  # 400 Telegram Stars
+PREMIUM_PRICE = 999
+TRIAL_DAYS = 3
+TRIAL_MESSAGE_LIMIT = 5
+
+# 🗂 Простая база пользователей
+users = {}
+
+
+# ---------------- HELPER ----------------
+
+def get_user(user_id):
+    if user_id not in users:
+        users[user_id] = {
+            "trial_start": datetime.datetime.now(),
+            "is_premium": False,
+            "daily_messages": 0,
+            "last_message_date": datetime.date.today()
+        }
+    return users[user_id]
+
+
+def is_trial_active(user):
+    if user["is_premium"]:
+        return False
+    delta = datetime.datetime.now() - user["trial_start"]
+    return delta.days < TRIAL_DAYS
 
 
 # ---------------- START ----------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    welcome_text = (
-        "💙 Добро пожаловать в Europe Match\n\n"
-        "Ищешь серьёзные отношения или новые знакомства по всей Европе?\n"
-        "Ты в правильном месте.\n\n"
-        "🌍 Мы объединяем людей без границ.\n"
-        "🔐 Открывай фото профиля и начинай общение уже сегодня.\n\n"
-        "📌 Правила платформы:\n"
-        "1️⃣ Уважение к каждому пользователю\n"
-        "2️⃣ Без спама и мошенничества\n"
-        "3️⃣ Запрещён откровенный контент\n"
-        "4️⃣ Не запрашивать деньги и личные данные\n\n"
-        "Нажимая кнопки ниже, вы соглашаетесь с правилами."
-    )
+    user_data = get_user(update.effective_user.id)
 
     keyboard = [
-        [InlineKeyboardButton("🔓 Открыть фото", callback_data="buy")],
-        [InlineKeyboardButton("📜 Правила", callback_data="rules")]
+        [InlineKeyboardButton("📷 Смотреть фото", callback_data="photos")],
+        [InlineKeyboardButton("💎 Купить Premium (999⭐)", callback_data="premium")]
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        welcome_text,
+        "💙 Добро пожаловать в Europe Match\n\n"
+        "🎁 Вам доступен пробный период 3 дня.\n\n"
+        "🔒 В пробной версии:\n"
+        f"• Лимит {TRIAL_MESSAGE_LIMIT} сообщений в день\n"
+        "• Часть фото скрыта\n\n"
+        "💎 Premium снимает все ограничения.",
         reply_markup=reply_markup
     )
 
 
-# ---------------- RULES BUTTON ----------------
+# ---------------- PHOTOS ----------------
 
-async def rules_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def photos_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    await query.message.reply_text(
-        "📜 Правила Europe Match:\n\n"
-        "• Уважительное общение\n"
-        "• Запрещён спам и мошенничество\n"
-        "• Никакого запрещённого контента\n"
-        "• Не переводите деньги незнакомым людям\n\n"
-        "Нарушение правил = блокировка 🚫"
-    )
+    user_data = get_user(query.from_user.id)
+
+    if user_data["is_premium"]:
+        await query.message.reply_photo(
+            photo="https://via.placeholder.com/500",
+            caption="🔥 Полное фото доступно (Premium)"
+        )
+    else:
+        await query.message.reply_text(
+            "🔒 Фото частично скрыто.\n\n"
+            "Купите Premium для полного доступа 💎"
+        )
 
 
-# ---------------- BUY BUTTON ----------------
+# ---------------- PREMIUM BUY ----------------
 
-async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def premium_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    prices = [LabeledPrice("Доступ к оригинальному фото", PRICE)]
+    prices = [LabeledPrice("Premium подписка", PREMIUM_PRICE)]
 
     await context.bot.send_invoice(
         chat_id=query.message.chat_id,
-        title="🔓 Открыть фото",
-        description="Доступ к оригинальному фото профиля",
-        payload="photo-access",
+        title="💎 Premium доступ",
+        description="Полный доступ без ограничений",
+        payload="premium-access",
         provider_token=PAYMENT_PROVIDER_TOKEN,
-        currency="XTR",  # Telegram Stars
+        currency="XTR",
         prices=prices,
     )
 
 
-# ---------------- PAYMENT HANDLERS ----------------
+# ---------------- PAYMENT ----------------
 
 async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.pre_checkout_query
     await query.answer(ok=True)
 
 
-async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = get_user(update.effective_user.id)
+    user_data["is_premium"] = True
+
     await update.message.reply_text(
-        "✅ Оплата прошла успешно!\n\n"
-        "Вот ваше оригинальное фото 👇"
+        "🎉 Поздравляем!\n\n"
+        "💎 Premium активирован.\n"
+        "Все ограничения сняты!"
     )
 
-    # 👉 ВСТАВЬ СЮДА СВОЮ ФОТОГРАФИЮ
-    await update.message.reply_photo(
-        photo="https://via.placeholder.com/500"
-    )
+
+# ---------------- MESSAGE LIMIT ----------------
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = get_user(update.effective_user.id)
+
+    if user_data["is_premium"]:
+        return
+
+    today = datetime.date.today()
+
+    if user_data["last_message_date"] != today:
+        user_data["daily_messages"] = 0
+        user_data["last_message_date"] = today
+
+    if not is_trial_active(user_data):
+        await update.message.reply_text(
+            "⛔ Пробный период завершён.\n\n"
+            "Купите Premium для продолжения 💎"
+        )
+        return
+
+    if user_data["daily_messages"] >= TRIAL_MESSAGE_LIMIT:
+        await update.message.reply_text(
+            "🚫 Вы достигли лимита сообщений на сегодня.\n\n"
+            "💎 Premium снимает ограничения."
+        )
+        return
+
+    user_data["daily_messages"] += 1
 
 
 # ---------------- MAIN ----------------
@@ -110,10 +164,11 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(rules_callback, pattern="rules"))
-    app.add_handler(CallbackQueryHandler(buy_callback, pattern="buy"))
+    app.add_handler(CallbackQueryHandler(photos_callback, pattern="photos"))
+    app.add_handler(CallbackQueryHandler(premium_callback, pattern="premium"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-    app.add_handler(CommandHandler("successful_payment", successful_payment_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
     app.run_polling()
 
