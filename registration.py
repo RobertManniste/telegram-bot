@@ -178,8 +178,6 @@ def registration_handler():
         fallbacks=[]
     )
 
-rom telegram.ext import CommandHandler, MessageHandler, filters
-
 def registration_handlers():
     return [
         registration_handler()
