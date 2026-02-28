@@ -16,13 +16,20 @@ def create_tables():
         telegram_id BIGINT PRIMARY KEY,
         name TEXT,
         age INT,
+        city TEXT,
         bio TEXT,
+        gender TEXT,
+        looking_for TEXT,
+
         photo_file_id TEXT,
         photo_status TEXT DEFAULT 'pending',
-        is_banned BOOLEAN DEFAULT FALSE,
+
         trial_end TIMESTAMP,
         premium_until TIMESTAMP,
+
+        is_banned BOOLEAN DEFAULT FALSE,
         messages_today INT DEFAULT 0,
+
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
