@@ -15,12 +15,25 @@ from telegram.ext import (
     filters
 )
 
-from database import create_tables, activate_premium
+from database import create_tables, activate_premium, get_connection
 from registration import registration_handler, start_registration
 from matching import matching_handlers
 from admin import admin_handlers
 
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+
+# ================= ПРОВЕРКА РЕГИСТРАЦИИ =================
+
+def user_exists(telegram_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE telegram_id = %s", (telegram_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result is not None
 
 
 # ================= START =================
@@ -56,33 +69,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Никакого спама
 • Никаких денежных запросов
 • Запрещён откровенный и незаконный контент
+
+Мы за безопасные знакомства ❤️
 """
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Начать заполнять анкету", callback_data="start_profile")],
+        [InlineKeyboardButton("🚀 Начать заполнять анкету", callback_data="start_reg")],
         [InlineKeyboardButton("💎 Купить Premium", callback_data="buy_premium")]
     ])
 
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
-# ================= START PROFILE BUTTON =================
+# ================= КНОПКА РЕГИСТРАЦИИ =================
 
-async def start_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_start_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    telegram_id = query.from_user.id
 
-    if user_exists(user_id):
-        await query.message.reply_text(
-            "👋 Добро пожаловать обратно!\n\n"
-            "Открываем главное меню..."
-        )
-        # Здесь позже будет реальное меню
-    else:
-        # запускаем регистрацию правильно
-        return await start_registration(update, context)
+    if user_exists(telegram_id):
+        await query.message.reply_text("Вы уже зарегистрированы ✅")
+        return
+
+    # запускаем ConversationHandler регистрации
+    await start_registration(update, context)
 
 
 # ================= BUY PREMIUM =================
@@ -98,7 +110,7 @@ async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         title="Europe Match Premium",
         description="Безлимитные сообщения и полный доступ ко всем функциям.",
         payload="premium-month",
-        provider_token="",  # Telegram Stars
+        provider_token="",
         currency="XTR",
         prices=prices,
     )
@@ -111,16 +123,14 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer(ok=True)
 
 
-# ================= SUCCESSFUL PAYMENT =================
+# ================= УСПЕШНАЯ ОПЛАТА =================
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-
-    activate_premium(user_id, days=30)
+    activate_premium(user_id, 30)
 
     await update.message.reply_text(
-        "🎉 Оплата прошла успешно!\n\n"
-        "Premium активирован на 1 месяц 💎"
+        "🎉 Оплата прошла успешно!\n\nPremium активирован на 1 месяц 💎"
     )
 
 
@@ -131,25 +141,25 @@ def main():
 
     create_tables()
 
-    # 1️⃣ команды
+    # старт
     app.add_handler(CommandHandler("start", start))
 
-    # 2️⃣ inline кнопки
-    app.add_handler(CallbackQueryHandler(start_profile, pattern="start_profile"))
+    # кнопки
+    app.add_handler(CallbackQueryHandler(handle_start_reg, pattern="start_reg"))
     app.add_handler(CallbackQueryHandler(buy_premium, pattern="buy_premium"))
 
-    # 3️⃣ платежи
+    # оплата
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-    # 4️⃣ регистрация (после кнопок!)
+    # регистрация (ConversationHandler)
     app.add_handler(registration_handler())
 
-    # 5️⃣ матчинг
+    # матчинг
     for h in matching_handlers():
         app.add_handler(h)
 
-    # 6️⃣ админка
+    # админка
     for h in admin_handlers():
         app.add_handler(h)
 
