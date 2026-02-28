@@ -100,10 +100,13 @@ Premium: {premium_status}
 Бан: {banned_status}
 """
 
-    if user[4]:
+if user[4] is not None and user[4] != "":
+    try:
         await query.message.reply_photo(user[4], caption=text)
-    else:
+    except:
         await query.message.reply_text(text)
+else:
+    await query.message.reply_text(text)
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💎 7 дней", callback_data="prem_7"),
