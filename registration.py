@@ -180,10 +180,7 @@ def registration_handler():
 
 rom telegram.ext import CommandHandler, MessageHandler, filters
 
-# если регистрация начинается через /register
 def registration_handlers():
     return [
-        CommandHandler("register", start_registration),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration_text),
-        MessageHandler(filters.PHOTO, handle_registration_photo),
+        registration_handler()
     ]
