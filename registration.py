@@ -123,14 +123,24 @@ async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["bio"] = update.message.text
 
     telegram_id = update.effective_user.id
-    trial_end = datetime.now() + timedelta(days=3)
+    trial_end = datetime.utcnow() + timedelta(days=3)
 
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
         INSERT INTO users
-        (telegram_id, name, age, city, bio, photo, gender, looking_for, trial_end)
+        (
+            telegram_id,
+            name,
+            age,
+            city,
+            bio,
+            gender,
+            looking_for,
+            photo_file_id,
+            trial_end
+        )
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
         telegram_id,
@@ -138,9 +148,9 @@ async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["age"],
         context.user_data["city"],
         context.user_data["bio"],
-        context.user_data["photo"],
         context.user_data["gender"],
         context.user_data["looking_for"],
+        context.user_data["photo"],
         trial_end
     ))
 
