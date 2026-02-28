@@ -14,9 +14,10 @@ from database import create_tables
 from registration import registration_handler
 from premium import send_premium_invoice, successful_payment
 from matching import matching_handlers, browse_profiles
+from admin import admin_handlers   # ← подключаем админку
 
 
-# ================== ГЛАВНОЕ МЕНЮ ==================
+# ================== СТАРТ ==================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -46,21 +47,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================== КНОПКИ ==================
 
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data == "trial":
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="Для регистрации введите /register"
-        )
+        await query.message.reply_text("Для регистрации введите /register")
 
     elif query.data == "premium":
         await send_premium_invoice(query, context)
 
     elif query.data == "browse":
-        await browse_profiles(query, context)
+        await browse_profiles(update, context)
 
 
 # ================== PRE-CHECKOUT ==================
@@ -77,23 +75,28 @@ def main():
 
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
-    # --- Стартовое меню
+    # --- Основные команды
     app.add_handler(CommandHandler("start", start))
 
     # --- Регистрация
     app.add_handler(registration_handler())
 
-    # --- Matching (лайки + чат)
+    # --- Matching
     for handler in matching_handlers():
         app.add_handler(handler)
 
     # --- Кнопки главного меню
-    app.add_handler(CallbackQueryHandler(buttons, pattern="^(trial|premium|browse)$"))
+    app.add_handler(CallbackQueryHandler(menu_buttons, pattern="^(trial|premium|browse)$"))
 
     # --- Оплата
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
+    # --- Админ панель
+    for handler in admin_handlers():
+        app.add_handler(handler)
+
+    print("Bot started...")
     app.run_polling()
 
 
