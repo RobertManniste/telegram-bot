@@ -10,16 +10,13 @@ from telegram.ext import (
 
 from database import (
     get_connection,
-    activate_premium,
-    remove_premium,
-    ban_user,
-    unban_user,
-    approve_photo,
-    delete_photo
+    activate_premium
 )
 
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
+
+# ================= ПРОВЕРКА АДМИНА =================
 
 def is_admin(user_id):
     return user_id == ADMIN_ID
@@ -54,6 +51,10 @@ async def show_users(update, context):
     cur.close()
     conn.close()
 
+    if not users:
+        await query.message.reply_text("Пользователей нет.")
+        return
+
     buttons = [
         [InlineKeyboardButton(f"{u[1]} ({u[0]})", callback_data=f"user_{u[0]}")]
         for u in users
@@ -85,6 +86,7 @@ async def user_profile(update, context):
     conn.close()
 
     if not user:
+        await query.message.reply_text("Пользователь не найден.")
         return
 
     premium_status = "Да" if user[5] and user[5] > datetime.now() else "Нет"
@@ -100,14 +102,16 @@ Premium: {premium_status}
 Бан: {banned_status}
 """
 
-if user[4] is not None and user[4] != "":
-    try:
-        await query.message.reply_photo(user[4], caption=text)
-    except:
+    # --- отправка профиля ---
+    if user[4]:
+        try:
+            await query.message.reply_photo(user[4], caption=text)
+        except:
+            await query.message.reply_text(text)
+    else:
         await query.message.reply_text(text)
-else:
-    await query.message.reply_text(text)
 
+    # --- кнопки управления ---
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💎 7 дней", callback_data="prem_7"),
          InlineKeyboardButton("💎 30 дней", callback_data="prem_30")],
@@ -115,9 +119,7 @@ else:
          InlineKeyboardButton("💎 1 год", callback_data="prem_365")],
         [InlineKeyboardButton("❌ Снять Premium", callback_data="remove_prem")],
         [InlineKeyboardButton("🚫 Бан", callback_data="ban"),
-         InlineKeyboardButton("✅ Разбан", callback_data="unban")],
-        [InlineKeyboardButton("🖼 Одобрить фото", callback_data="approve_photo"),
-         InlineKeyboardButton("🗑 Удалить фото", callback_data="delete_photo")]
+         InlineKeyboardButton("✅ Разбан", callback_data="unban")]
     ])
 
     await query.message.reply_text("Управление:", reply_markup=keyboard)
@@ -136,89 +138,54 @@ async def give_premium(update, context):
     await query.message.reply_text(f"✅ Premium выдан на {days} дней.")
 
 
-async def remove_prem(update, context):
+async def remove_premium_admin(update, context):
     query = update.callback_query
     await query.answer()
 
     user_id = context.user_data.get("target_user")
-    remove_premium(user_id)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET premium_until = NULL WHERE telegram_id = %s", (user_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
 
     await query.message.reply_text("❌ Premium снят.")
 
 
 # ================= БАН =================
 
-async def ban(update, context):
+async def ban_user_admin(update, context):
     query = update.callback_query
     await query.answer()
 
     user_id = context.user_data.get("target_user")
-    ban_user(user_id)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_banned = TRUE WHERE telegram_id = %s", (user_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
 
     await query.message.reply_text("🚫 Пользователь забанен.")
 
 
-async def unban(update, context):
+async def unban_user_admin(update, context):
     query = update.callback_query
     await query.answer()
 
     user_id = context.user_data.get("target_user")
-    unban_user(user_id)
-
-    await query.message.reply_text("✅ Пользователь разбанен.")
-
-
-# ================= ФОТО =================
-
-async def approve(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = context.user_data.get("target_user")
-    approve_photo(user_id)
-
-    await query.message.reply_text("🖼 Фото одобрено.")
-
-
-async def delete(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = context.user_data.get("target_user")
-    delete_photo(user_id)
-
-    await query.message.reply_text("🗑 Фото удалено.")
-
-
-# ================= МОДЕРАЦИЯ =================
-
-async def moderation_photos(update, context):
-    query = update.callback_query
-    await query.answer()
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT telegram_id, name FROM users
-        WHERE photo_approved = FALSE AND photo IS NOT NULL
-    """)
-    users = cur.fetchall()
+    cur.execute("UPDATE users SET is_banned = FALSE WHERE telegram_id = %s", (user_id,))
+    conn.commit()
     cur.close()
     conn.close()
 
-    if not users:
-        await query.message.reply_text("Нет фото на модерации.")
-        return
-
-    buttons = [
-        [InlineKeyboardButton(f"{u[1]} ({u[0]})", callback_data=f"user_{u[0]}")]
-        for u in users
-    ]
-
-    await query.message.reply_text(
-        "Фото на проверке:",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    await query.message.reply_text("✅ Пользователь разбанен.")
 
 
 # ================= СТАТИСТИКА =================
@@ -233,9 +200,6 @@ async def show_stats(update, context):
     cur.execute("SELECT COUNT(*) FROM users")
     users = cur.fetchone()[0]
 
-    cur.execute("SELECT COUNT(*) FROM messages")
-    messages = cur.fetchone()[0]
-
     cur.execute("SELECT COUNT(*) FROM users WHERE premium_until > NOW()")
     premium = cur.fetchone()[0]
 
@@ -246,7 +210,6 @@ async def show_stats(update, context):
 📊 Статистика
 
 Пользователи: {users}
-Сообщения: {messages}
 Активный Premium: {premium}
 """
 
@@ -258,6 +221,7 @@ async def show_stats(update, context):
 async def start_broadcast(update, context):
     query = update.callback_query
     await query.answer()
+
     context.user_data["broadcast"] = True
     await query.message.reply_text("Введите текст рассылки:")
 
@@ -293,12 +257,9 @@ def admin_handlers():
         CallbackQueryHandler(show_users, pattern="admin_users"),
         CallbackQueryHandler(user_profile, pattern="user_"),
         CallbackQueryHandler(give_premium, pattern="prem_"),
-        CallbackQueryHandler(remove_prem, pattern="remove_prem"),
-        CallbackQueryHandler(ban, pattern="ban"),
-        CallbackQueryHandler(unban, pattern="unban"),
-        CallbackQueryHandler(approve, pattern="approve_photo"),
-        CallbackQueryHandler(delete, pattern="delete_photo"),
-        CallbackQueryHandler(moderation_photos, pattern="admin_photos"),
+        CallbackQueryHandler(remove_premium_admin, pattern="remove_prem"),
+        CallbackQueryHandler(ban_user_admin, pattern="ban"),
+        CallbackQueryHandler(unban_user_admin, pattern="unban"),
         CallbackQueryHandler(show_stats, pattern="admin_stats"),
         CallbackQueryHandler(start_broadcast, pattern="admin_broadcast"),
         MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast),
