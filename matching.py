@@ -1,5 +1,6 @@
 import os
 import psycopg2
+from datetime import datetime
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from telegram.ext import CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
@@ -8,10 +9,20 @@ def get_connection():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
 
 
+# ================== ПРОВЕРКА PREMIUM ==================
+
+def is_premium_active(premium_until):
+    if not premium_until:
+        return False
+    return premium_until > datetime.utcnow()
+
+
 # ================== ПОКАЗ АНКЕТ ==================
 
 async def browse_profiles(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
+
     user_id = query.from_user.id
 
     conn = get_connection()
@@ -49,7 +60,7 @@ async def browse_profiles(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ================== ЛАЙКИ ==================
+# ================== ЛАЙК ==================
 
 async def handle_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -61,14 +72,12 @@ async def handle_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_connection()
     cur = conn.cursor()
 
-    # сохраняем лайк
     cur.execute("""
         INSERT INTO likes (user_id, liked_user_id)
         VALUES (%s, %s)
         ON CONFLICT DO NOTHING
     """, (user_id, target_id))
 
-    # проверяем взаимность
     cur.execute("""
         SELECT 1 FROM likes
         WHERE user_id=%s AND liked_user_id=%s
@@ -77,7 +86,7 @@ async def handle_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = cur.fetchone()
 
     if match:
-        await query.message.reply_text("💘 У вас совпадение! Теперь можете общаться.")
+        await query.message.reply_text("💘 У вас совпадение!")
 
     conn.commit()
     cur.close()
@@ -86,7 +95,7 @@ async def handle_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await browse_profiles(update, context)
 
 
-# ================== ПЕРЕСЫЛКА СООБЩЕНИЙ ==================
+# ================== СООБЩЕНИЯ ==================
 
 async def forward_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -95,30 +104,29 @@ async def forward_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_connection()
     cur = conn.cursor()
 
-    # проверяем premium и trial
     cur.execute("""
-        SELECT premium, trial_end, messages_today
+        SELECT premium_until, trial_end, messages_today
         FROM users WHERE telegram_id=%s
     """, (user_id,))
+
     user = cur.fetchone()
 
     if not user:
         return
 
-    premium, trial_end, messages_today = user
+    premium_until, trial_end, messages_today = user
+    premium_active = is_premium_active(premium_until)
 
-    if not premium:
-        if trial_end is None:
+    if not premium_active:
+        if not trial_end:
             await update.message.reply_text(
-                "⛔ У вас закончилась пробная версия.\n"
-                "Купите Premium и общайтесь без ограничений."
+                "⛔ Пробная версия закончилась.\nКупите Premium."
             )
             return
 
         if messages_today >= 20:
             await update.message.reply_text(
-                "⛔ Лимит 20 сообщений в день исчерпан.\n"
-                "Купите Premium 💎"
+                "⛔ Лимит 20 сообщений в день.\nКупите Premium."
             )
             return
 
@@ -128,7 +136,7 @@ async def forward_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE telegram_id=%s
         """, (user_id,))
 
-    # получаем все матчи
+    # Получаем взаимные матчи
     cur.execute("""
         SELECT l2.user_id
         FROM likes l1
@@ -141,7 +149,7 @@ async def forward_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matches = cur.fetchall()
 
     for match in matches:
-        context.bot.send_message(match[0], f"💬 Сообщение:\n{text}")
+        await context.bot.send_message(match[0], f"💬 {text}")
 
     conn.commit()
     cur.close()
