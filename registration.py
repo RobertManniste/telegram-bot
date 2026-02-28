@@ -167,7 +167,13 @@ def registration_handler():
         },
         fallbacks=[]
     )
+
+rom telegram.ext import CommandHandler, MessageHandler, filters
+
+# если регистрация начинается через /register
 def registration_handlers():
     return [
-        registration_handler
+        CommandHandler("register", start_registration),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration_text),
+        MessageHandler(filters.PHOTO, handle_registration_photo),
     ]
