@@ -15,25 +15,12 @@ from telegram.ext import (
     filters
 )
 
-from database import create_tables, activate_premium, get_connection
-from registration import registration_handler, start_registration
+from database import create_tables, activate_premium
+from registration import registration_handler
 from matching import matching_handlers
 from admin import admin_handlers
 
-
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-
-# ================= ПРОВЕРКА РЕГИСТРАЦИИ =================
-
-def user_exists(telegram_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM users WHERE telegram_id = %s", (telegram_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result is not None
 
 
 # ================= START =================
@@ -45,6 +32,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Ищешь любовь, общение или новые знакомства по Европе? 🌍  
 Ты в правильном месте.
+
+Здесь ты можешь:
+• Смотреть анкеты
+• Получать сообщения
+• Общаться после совпадения
 
 ━━━━━━━━━━━━━━━
 ✨ Пробный доступ — 3 дня
@@ -81,23 +73,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
-# ================= КНОПКА РЕГИСТРАЦИИ =================
-
-async def handle_start_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = query.from_user.id
-
-    if user_exists(telegram_id):
-        await query.message.reply_text("Вы уже зарегистрированы ✅")
-        return
-
-    # запускаем ConversationHandler регистрации
-    await start_registration(update, context)
-
-
-# ================= BUY PREMIUM =================
+# ================= BUY PREMIUM (Telegram Stars) =================
 
 async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -123,14 +99,16 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer(ok=True)
 
 
-# ================= УСПЕШНАЯ ОПЛАТА =================
+# ================= SUCCESSFUL PAYMENT =================
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    activate_premium(user_id, 30)
+
+    activate_premium(user_id, days=30)
 
     await update.message.reply_text(
-        "🎉 Оплата прошла успешно!\n\nPremium активирован на 1 месяц 💎"
+        "🎉 Оплата прошла успешно!\n\n"
+        "Premium активирован на 1 месяц 💎"
     )
 
 
@@ -141,27 +119,28 @@ def main():
 
     create_tables()
 
-    # старт
+    # --- БАЗОВЫЕ ---
     app.add_handler(CommandHandler("start", start))
-
-    # кнопки
-    app.add_handler(CallbackQueryHandler(handle_start_reg, pattern="start_reg"))
-    app.add_handler(CallbackQueryHandler(buy_premium, pattern="buy_premium"))
-
-    # оплата
+    app.add_handler(CallbackQueryHandler(buy_premium, pattern="^buy_premium$"))
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-    # регистрация (ConversationHandler)
+    # ======================================================
+    # 🔥 СНАЧАЛА АДМИН (ВАЖНО!)
+    # ======================================================
+    for handler in admin_handlers():
+        app.add_handler(handler)
+
+    # ======================================================
+    # ПОТОМ РЕГИСТРАЦИЯ
+    # ======================================================
     app.add_handler(registration_handler())
 
-    # матчинг
-    for h in matching_handlers():
-        app.add_handler(h)
-
-    # админка
-    for h in admin_handlers():
-        app.add_handler(h)
+    # ======================================================
+    # ПОТОМ МАТЧИНГ
+    # ======================================================
+    for handler in matching_handlers():
+        app.add_handler(handler)
 
     app.run_polling()
 
