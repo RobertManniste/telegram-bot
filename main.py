@@ -8,27 +8,22 @@ from telegram.ext import (
 )
 
 from database import create_tables
-from registration import start_registration
+from registration import registration_handler
 from premium import send_premium_invoice
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💙 Добро пожаловать в Europe Match\n\n"
-        "Мы объединяем людей по всей Европе для знакомств, общения "
-        "и серьёзных отношений.\n"
-        "Найди свою вторую половинку быстро и безопасно 🌍\n\n"
-        "🎁 Вам доступен пробный период 3 дня!\n\n"
-        "В пробной версии:\n"
+        "Мы объединяем людей по всей Европе для знакомств и серьёзных отношений 🌍\n\n"
+        "🎁 Пробный период 3 дня:\n"
         "• 20 сообщений в день\n"
-        "• Частичный доступ к фотографиям\n"
-        "• Возможность начать общение\n\n"
-        "💎 Premium открывает:\n"
-        "• Неограниченные сообщения\n"
+        "• Частичный доступ к фото\n\n"
+        "💎 Premium:\n"
+        "• Безлимитные сообщения\n"
         "• Полный доступ ко всем фото\n"
-        "• Приоритет профиля в поиске\n"
-        "• Расширенные возможности общения\n\n"
-        "Открой больше возможностей ❤️"
+        "• Приоритет в поиске\n\n"
+        "Выберите вариант:"
     )
 
     keyboard = InlineKeyboardMarkup([
@@ -44,7 +39,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "trial":
-        await start_registration(query, context, trial=True)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Начинаем регистрацию 👇"
+        )
+        return await registration_handler().entry_points[0].callback(update, context)
 
     elif query.data == "premium":
         await send_premium_invoice(query, context)
@@ -57,6 +56,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
+    app.add_handler(registration_handler())
 
     app.run_polling()
 
