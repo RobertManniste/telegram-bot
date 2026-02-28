@@ -15,8 +15,8 @@ from telegram.ext import (
     filters
 )
 
-from database import create_tables, activate_premium
-from registration import registration_handler
+from database import create_tables, activate_premium, user_exists
+from registration import registration_handler, start_registration
 from matching import matching_handlers
 from admin import admin_handlers
 
@@ -32,11 +32,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Ищешь любовь, общение или новые знакомства по Европе? 🌍  
 Ты в правильном месте.
-
-Здесь ты можешь:
-• Смотреть анкеты
-• Получать взаимные симпатии
-• Общаться после совпадения
 
 ━━━━━━━━━━━━━━━
 ✨ Пробный доступ — 3 дня
@@ -61,19 +56,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Никакого спама
 • Никаких денежных запросов
 • Запрещён откровенный и незаконный контент
-
-Мы за безопасные знакомства ❤️
 """
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Начать заполнять анкету", callback_data="start_reg")],
+        [InlineKeyboardButton("🚀 Начать заполнять анкету", callback_data="start_profile")],
         [InlineKeyboardButton("💎 Купить Premium", callback_data="buy_premium")]
     ])
 
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
-# ================= BUY PREMIUM (Telegram Stars) =================
+# ================= START PROFILE BUTTON =================
+
+async def start_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    if user_exists(user_id):
+        await query.message.reply_text(
+            "👋 Добро пожаловать обратно!\n\n"
+            "Открываем главное меню..."
+        )
+        # Здесь позже будет реальное меню
+    else:
+        # запускаем регистрацию правильно
+        return await start_registration(update, context)
+
+
+# ================= BUY PREMIUM =================
 
 async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -86,7 +98,7 @@ async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         title="Europe Match Premium",
         description="Безлимитные сообщения и полный доступ ко всем функциям.",
         payload="premium-month",
-        provider_token="",  # для Telegram Stars пусто
+        provider_token="",  # Telegram Stars
         currency="XTR",
         prices=prices,
     )
@@ -119,24 +131,25 @@ def main():
 
     create_tables()
 
-    # базовые
+    # 1️⃣ команды
     app.add_handler(CommandHandler("start", start))
+
+    # 2️⃣ inline кнопки
+    app.add_handler(CallbackQueryHandler(start_profile, pattern="start_profile"))
     app.add_handler(CallbackQueryHandler(buy_premium, pattern="buy_premium"))
+
+    # 3️⃣ платежи
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-    # успешная оплата
-    app.add_handler(
-        MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment)
-    )
-
-    # регистрация
+    # 4️⃣ регистрация (после кнопок!)
     app.add_handler(registration_handler())
 
-    # матчинг
+    # 5️⃣ матчинг
     for h in matching_handlers():
         app.add_handler(h)
 
-    # админка
+    # 6️⃣ админка
     for h in admin_handlers():
         app.add_handler(h)
 
