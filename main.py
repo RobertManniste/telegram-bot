@@ -7,9 +7,12 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PRICE = 400  # 400 Stars
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Добро пожаловать 💘\n\nНажми /buy чтобы открыть фото 🔓"
-    )
+await update.message.reply_text(
+"Добро пожаловать в Europe Match 💙\n\n"
+"Ищешь вторую половинку? Мы объединяем людей по всей Европе.\n\n"
+"📌 Соблюдайте правила уважения и честного общения.\n\n"
+"Нажми /buy чтобы открыть фото 🔒"
+)
 
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prices = [LabeledPrice("Premium Access", PRICE)]
