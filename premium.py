@@ -14,7 +14,7 @@ def get_connection():
 async def send_premium_invoice(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id if update.message else update.callback_query.message.chat_id
 
-    prices = [LabeledPrice("Premium подписка", 99900)]  # 999 Stars
+    prices = [LabeledPrice("Premium подписка", 999)]  # 999 Stars
 
     await context.bot.send_invoice(
         chat_id=chat_id,
