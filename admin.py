@@ -1,10 +1,11 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    ContextTypes,
     filters
 )
 
@@ -13,13 +14,13 @@ from database import get_connection, activate_premium
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 
-# ================= ПРОВЕРКА АДМИНА =================
+# ================= CHECK ADMIN =================
 
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
 
-# ================= ГЛАВНОЕ МЕНЮ =================
+# ================= ADMIN PANEL =================
 
 async def admin_panel(update, context):
     if not is_admin(update.effective_user.id):
@@ -31,10 +32,10 @@ async def admin_panel(update, context):
         [InlineKeyboardButton("📨 Рассылка", callback_data="admin_broadcast")]
     ])
 
-    await update.message.reply_text("⚙ Админ панель v6", reply_markup=keyboard)
+    await update.message.reply_text("⚙ Админ панель v7", reply_markup=keyboard)
 
 
-# ================= СПИСОК ПОЛЬЗОВАТЕЛЕЙ =================
+# ================= USERS =================
 
 async def show_users(update, context):
     query = update.callback_query
@@ -42,19 +43,19 @@ async def show_users(update, context):
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT telegram_id, name FROM users ORDER BY id DESC")
+    cur.execute("SELECT telegram_id, name FROM users")
     users = cur.fetchall()
     cur.close()
     conn.close()
 
-    if not users:
-        await query.message.reply_text("Пользователей нет.")
-        return
-
-    buttons = [
-        [InlineKeyboardButton(f"{u[1]} ({u[0]})", callback_data=f"user_{u[0]}")]
-        for u in users
-    ]
+    buttons = []
+    for u in users:
+        buttons.append([
+            InlineKeyboardButton(
+                f"{u[1]} ({u[0]})",
+                callback_data=f"view_{u[0]}"
+            )
+        ])
 
     await query.message.reply_text(
         "👥 Пользователи:",
@@ -62,19 +63,16 @@ async def show_users(update, context):
     )
 
 
-# ================= ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ =================
-
-async def user_profile(update, context):
+async def view_user(update, context):
     query = update.callback_query
     await query.answer()
 
     user_id = int(query.data.split("_")[1])
-    context.user_data["target_user"] = user_id
 
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT name, age, city, bio, photo, premium_until, is_banned
+        SELECT name, age, city, bio, premium_until, is_banned
         FROM users WHERE telegram_id = %s
     """, (user_id,))
     user = cur.fetchone()
@@ -85,8 +83,8 @@ async def user_profile(update, context):
         await query.message.reply_text("Пользователь не найден.")
         return
 
-    premium_status = "Да" if user[5] and user[5] > datetime.now() else "Нет"
-    banned_status = "Да" if user[6] else "Нет"
+    premium = "Да" if user[4] and user[4] > datetime.now() else "Нет"
+    banned = "Да" if user[5] else "Нет"
 
     text = f"""
 Имя: {user[0]}
@@ -94,28 +92,21 @@ async def user_profile(update, context):
 Город: {user[2]}
 Bio: {user[3]}
 
-Premium: {premium_status}
-Бан: {banned_status}
+Premium: {premium}
+Бан: {banned}
 """
 
-    # отправка профиля
-    if user[4]:
-        try:
-            await query.message.reply_photo(user[4], caption=text)
-        except:
-            await query.message.reply_text(text)
-    else:
-        await query.message.reply_text(text)
-
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💎 7 дней", callback_data="prem_7"),
-         InlineKeyboardButton("💎 30 дней", callback_data="prem_30")],
-        [InlineKeyboardButton("❌ Снять Premium", callback_data="remove_prem")],
-        [InlineKeyboardButton("🚫 Бан", callback_data="ban"),
-         InlineKeyboardButton("✅ Разбан", callback_data="unban")]
+        [
+            InlineKeyboardButton("💎 30 дней Premium", callback_data=f"giveprem_{user_id}")
+        ],
+        [
+            InlineKeyboardButton("🚫 Бан", callback_data=f"ban_{user_id}"),
+            InlineKeyboardButton("✅ Разбан", callback_data=f"unban_{user_id}")
+        ]
     ])
 
-    await query.message.reply_text("Управление:", reply_markup=keyboard)
+    await query.message.reply_text(text, reply_markup=keyboard)
 
 
 # ================= PREMIUM =================
@@ -124,36 +115,19 @@ async def give_premium(update, context):
     query = update.callback_query
     await query.answer()
 
-    days = int(query.data.split("_")[1])
-    user_id = context.user_data.get("target_user")
+    user_id = int(query.data.split("_")[1])
+    activate_premium(user_id, 30)
 
-    activate_premium(user_id, days)
-    await query.message.reply_text(f"✅ Premium выдан на {days} дней.")
+    await query.message.reply_text("✅ Premium выдан на 30 дней.")
 
 
-async def remove_premium_admin(update, context):
+# ================= BAN =================
+
+async def ban_user(update, context):
     query = update.callback_query
     await query.answer()
 
-    user_id = context.user_data.get("target_user")
-
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET premium_until = NULL WHERE telegram_id = %s", (user_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    await query.message.reply_text("❌ Premium снят.")
-
-
-# ================= БАН =================
-
-async def ban_user_admin(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = context.user_data.get("target_user")
+    user_id = int(query.data.split("_")[1])
 
     conn = get_connection()
     cur = conn.cursor()
@@ -165,11 +139,11 @@ async def ban_user_admin(update, context):
     await query.message.reply_text("🚫 Пользователь забанен.")
 
 
-async def unban_user_admin(update, context):
+async def unban_user(update, context):
     query = update.callback_query
     await query.answer()
 
-    user_id = context.user_data.get("target_user")
+    user_id = int(query.data.split("_")[1])
 
     conn = get_connection()
     cur = conn.cursor()
@@ -181,7 +155,7 @@ async def unban_user_admin(update, context):
     await query.message.reply_text("✅ Пользователь разбанен.")
 
 
-# ================= СТАТИСТИКА =================
+# ================= STATS =================
 
 async def show_stats(update, context):
     query = update.callback_query
@@ -194,7 +168,7 @@ async def show_stats(update, context):
     total_users = cur.fetchone()[0]
 
     cur.execute("SELECT COUNT(*) FROM users WHERE premium_until > NOW()")
-    active_premium = cur.fetchone()[0]
+    premium_users = cur.fetchone()[0]
 
     cur.close()
     conn.close()
@@ -203,23 +177,24 @@ async def show_stats(update, context):
 📊 Статистика
 
 Пользователи: {total_users}
-Активный Premium: {active_premium}
+Активный Premium: {premium_users}
 """
 
     await query.message.reply_text(text)
 
 
-# ================= РАССЫЛКА =================
+# ================= BROADCAST =================
 
 async def start_broadcast(update, context):
     query = update.callback_query
     await query.answer()
-    context.user_data["broadcast"] = True
+
+    context.user_data["broadcast_mode"] = True
     await query.message.reply_text("Введите текст рассылки:")
 
 
 async def send_broadcast(update, context):
-    if not context.user_data.get("broadcast"):
+    if not context.user_data.get("broadcast_mode"):
         return
 
     text = update.message.text
@@ -237,8 +212,8 @@ async def send_broadcast(update, context):
         except:
             pass
 
+    context.user_data["broadcast_mode"] = False
     await update.message.reply_text("✅ Рассылка завершена.")
-    context.user_data.clear()
 
 
 # ================= HANDLERS =================
@@ -248,13 +223,13 @@ def admin_handlers():
         CommandHandler("admin", admin_panel),
 
         CallbackQueryHandler(show_users, pattern="^admin_users$"),
-        CallbackQueryHandler(user_profile, pattern="^user_"),
-        CallbackQueryHandler(give_premium, pattern="^prem_"),
-        CallbackQueryHandler(remove_premium_admin, pattern="^remove_prem$"),
-        CallbackQueryHandler(ban_user_admin, pattern="^ban$"),
-        CallbackQueryHandler(unban_user_admin, pattern="^unban$"),
         CallbackQueryHandler(show_stats, pattern="^admin_stats$"),
         CallbackQueryHandler(start_broadcast, pattern="^admin_broadcast$"),
+
+        CallbackQueryHandler(view_user, pattern="^view_"),
+        CallbackQueryHandler(give_premium, pattern="^giveprem_"),
+        CallbackQueryHandler(ban_user, pattern="^ban_"),
+        CallbackQueryHandler(unban_user, pattern="^unban_"),
 
         MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast),
     ]
