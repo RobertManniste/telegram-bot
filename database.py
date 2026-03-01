@@ -1,153 +1,63 @@
-import os
-import psycopg2
-from datetime import datetime, timedelta
+import sqlite3
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-
-def get_connection():
-    return psycopg2.connect(DATABASE_URL)
-
-
-# ================= CREATE / UPDATE TABLE =================
+DB_NAME = "lovia.db"
 
 def create_tables():
-    conn = get_connection()
-    cur = conn.cursor()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        telegram_id BIGINT UNIQUE NOT NULL,
-        name TEXT,
-        age INTEGER,
-        city TEXT,
-        bio TEXT,
-        photo TEXT,
-        gender TEXT,
-        looking_for TEXT,
-        trial_end TIMESTAMP,
-        premium_until TIMESTAMP,
-        is_banned BOOLEAN DEFAULT FALSE,
-        photo_approved BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS likes (
-        id SERIAL PRIMARY KEY,
-        from_user BIGINT,
-        to_user BIGINT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(from_user, to_user)
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS matches (
-        id SERIAL PRIMARY KEY,
-        user1 BIGINT,
-        user2 BIGINT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user1, user2)
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS messages (
-        id SERIAL PRIMARY KEY,
-        from_user BIGINT,
-        to_user BIGINT,
-        text TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,
+            name TEXT,
+            age TEXT,
+            city TEXT,
+            premium INTEGER DEFAULT 0
+        )
     """)
 
     conn.commit()
-    cur.close()
     conn.close()
 
 
-# ================= PREMIUM =================
+# ===== ДОБАВИТЬ ПОЛЬЗОВАТЕЛЯ =====
+def add_user(telegram_id, name, age, city):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-def activate_premium(user_id, days):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    premium_end = datetime.now() + timedelta(days=days)
-
-    cur.execute(
-        "UPDATE users SET premium_until = %s WHERE telegram_id = %s",
-        (premium_end, user_id)
-    )
+    cursor.execute("""
+        INSERT OR REPLACE INTO users (telegram_id, name, age, city)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, name, age, city))
 
     conn.commit()
-    cur.close()
     conn.close()
 
 
-def remove_premium(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
+# ===== ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ =====
+def get_user(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-    cur.execute(
-        "UPDATE users SET premium_until = NULL WHERE telegram_id = %s",
-        (user_id,)
-    )
+    cursor.execute("""
+        SELECT * FROM users WHERE telegram_id = ?
+    """, (telegram_id,))
 
-    conn.commit()
-    cur.close()
+    user = cursor.fetchone()
     conn.close()
 
+    return user
 
-# ================= BAN =================
 
-def ban_user(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET is_banned = TRUE WHERE telegram_id = %s",
-        (user_id,)
-    )
+# ===== АКТИВИРОВАТЬ PREMIUM =====
+def activate_premium(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE users SET premium = 1 WHERE telegram_id = ?
+    """, (telegram_id,))
+
     conn.commit()
-    cur.close()
-    conn.close()
-
-
-def unban_user(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET is_banned = FALSE WHERE telegram_id = %s",
-        (user_id,)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-# ================= PHOTO MODERATION =================
-
-def approve_photo(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET photo_approved = TRUE WHERE telegram_id = %s",
-        (user_id,)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def delete_photo(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET photo = NULL, photo_approved = FALSE WHERE telegram_id = %s",
-        (user_id,)
-    )
-    conn.commit()
-    cur.close()
     conn.close()
