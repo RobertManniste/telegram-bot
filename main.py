@@ -1,149 +1,156 @@
 import os
 from telegram import (
-    InlineKeyboardMarkup,
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
     InlineKeyboardButton,
-    LabeledPrice,
-    Update
+    InlineKeyboardMarkup,
+    LabeledPrice
 )
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    CallbackQueryHandler,
-    PreCheckoutQueryHandler,
-    ContextTypes,
     MessageHandler,
-    filters
+    CallbackQueryHandler,
+    ContextTypes,
+    PreCheckoutQueryHandler,
+    filters,
 )
 
-from database import create_tables, activate_premium
-from registration import registration_handler
-from matching import matching_handlers
-from admin import admin_handlers
+from database import create_tables, get_user, add_user
+from matching import show_next_profile
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+# ================== КНОПКИ ==================
 
-# ================= START =================
+def registered_menu():
+    keyboard = [
+        [KeyboardButton("👀 Смотреть анкеты")],
+        [KeyboardButton("💎 Купить Premium")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def new_user_menu():
+    keyboard = [
+        [KeyboardButton("🚀 Начать заполнять анкету")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# ================== /start ==================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    user = get_user(telegram_id)
 
-    text = """
-💙 Europe Match — знакомства без границ
+    if user:
+        await update.message.reply_text(
+            "Добро пожаловать в Lovia ❤️",
+            reply_markup=registered_menu()
+        )
+    else:
+        await update.message.reply_text(
+            """❤️ Lovia — знакомства без границ
 
-Ищешь любовь, общение или новые знакомства по Европе? 🌍  
-Ты в правильном месте.
+Создай профиль и начни знакомства уже сейчас 💫""",
+            reply_markup=new_user_menu()
+        )
 
-Здесь ты можешь:
-• Смотреть анкеты
-• Получать сообщения
-• Общаться после совпадения
+# ================== РЕГИСТРАЦИЯ ==================
 
-━━━━━━━━━━━━━━━
-✨ Пробный доступ — 3 дня
+async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Как тебя зовут?")
+    context.user_data["step"] = "name"
 
-В пробной версии:
-• 20 сообщений в день
-• Частичный доступ к фотографиям
-• Возможность начать общение
+async def registration_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    step = context.user_data.get("step")
 
-━━━━━━━━━━━━━━━
-💎 Premium
+    if step == "name":
+        context.user_data["name"] = update.message.text
+        await update.message.reply_text("Сколько тебе лет?")
+        context.user_data["step"] = "age"
 
-• Безлимитные сообщения
-• Полный доступ ко всем фото
-• Приоритет в поиске
-• Неограниченные лайки
+    elif step == "age":
+        context.user_data["age"] = update.message.text
+        await update.message.reply_text("Из какого ты города?")
+        context.user_data["step"] = "city"
 
-━━━━━━━━━━━━━━━
-📌 Правила
+    elif step == "city":
+        name = context.user_data.get("name")
+        age = context.user_data.get("age")
+        city = update.message.text
 
-• Уважайте других
-• Никакого спама
-• Никаких денежных запросов
-• Запрещён откровенный и незаконный контент
+        add_user(
+            telegram_id=update.effective_user.id,
+            name=name,
+            age=age,
+            city=city
+        )
 
-Мы за безопасные знакомства ❤️
-"""
+        await update.message.reply_text(
+            "Регистрация завершена ❤️\nТеперь можешь смотреть анкеты!",
+            reply_markup=registered_menu()
+        )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Начать заполнять анкету", callback_data="start_reg")],
-        [InlineKeyboardButton("💎 Купить Premium", callback_data="buy_premium")]
-    ])
+        context.user_data.clear()
 
-    await update.message.reply_text(text, reply_markup=keyboard)
+# ================== ПРОСМОТР АНКЕТ ==================
 
+async def view_profiles(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_next_profile(update, context)
 
-# ================= BUY PREMIUM (Telegram Stars) =================
+# ================== PREMIUM 349 ⭐ ==================
 
 async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    prices = [LabeledPrice("Premium (1 месяц)", 399)]
+    prices = [LabeledPrice("Premium Lovia", 349)]
 
     await context.bot.send_invoice(
-        chat_id=query.from_user.id,
-        title="Europe Match Premium",
-        description="Безлимитные сообщения и полный доступ ко всем функциям.",
-        payload="premium-month",
-        provider_token="",
+        chat_id=update.effective_chat.id,
+        title="Lovia Premium",
+        description="Безлимитный доступ ко всем функциям",
+        payload="premium_payment",
+        provider_token="",  # для Telegram Stars оставить пустым
         currency="XTR",
         prices=prices,
     )
 
-
-# ================= PRECHECKOUT =================
-
-async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def precheckout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.pre_checkout_query
     await query.answer(ok=True)
 
-
-# ================= SUCCESSFUL PAYMENT =================
-
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
+    await update.message.reply_text("💎 Premium активирован! Спасибо ❤️")
 
-    activate_premium(user_id, days=30)
-
-    await update.message.reply_text(
-        "🎉 Оплата прошла успешно!\n\n"
-        "Premium активирован на 1 месяц 💎"
-    )
-
-
-# ================= MAIN =================
+# ================== MAIN ==================
 
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
     create_tables()
 
-    # --- БАЗОВЫЕ ---
+    app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buy_premium, pattern="^buy_premium$"))
-    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("🚀 Начать заполнять анкету"),
+        start_registration
+    ))
+
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("👀 Смотреть анкеты"),
+        view_profiles
+    ))
+
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("💎 Купить Premium"),
+        buy_premium
+    ))
+
+    app.add_handler(MessageHandler(filters.TEXT, registration_flow))
+
+    app.add_handler(PreCheckoutQueryHandler(precheckout))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-    # ======================================================
-    # 🔥 СНАЧАЛА АДМИН (ВАЖНО!)
-    # ======================================================
-    for handler in admin_handlers():
-        app.add_handler(handler)
-
-    # ======================================================
-    # ПОТОМ РЕГИСТРАЦИЯ
-    # ======================================================
-    app.add_handler(registration_handler())
-
-    # ======================================================
-    # ПОТОМ МАТЧИНГ
-    # ======================================================
-    for handler in matching_handlers():
-        app.add_handler(handler)
-
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
