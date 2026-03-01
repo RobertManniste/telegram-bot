@@ -1,28 +1,79 @@
 import os
+import sqlite3
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
     KeyboardButton,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     LabeledPrice
 )
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ContextTypes,
     PreCheckoutQueryHandler,
     filters,
 )
 
-from database import create_tables, get_user, add_user
-from matching import show_next_profile
-
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+DB_NAME = "lovia.db"
 
-# ================== КНОПКИ ==================
+
+# ================= DATABASE =================
+
+def create_tables():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,
+            name TEXT,
+            age TEXT,
+            city TEXT,
+            premium INTEGER DEFAULT 0
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def get_user(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    conn.close()
+    return user
+
+
+def add_user(telegram_id, name, age, city):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO users (telegram_id, name, age, city)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, name, age, city))
+
+    conn.commit()
+    conn.close()
+
+
+def activate_premium(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("UPDATE users SET premium = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+
+# ================= MENUS =================
 
 def registered_menu():
     keyboard = [
@@ -31,13 +82,15 @@ def registered_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+
 def new_user_menu():
     keyboard = [
         [KeyboardButton("🚀 Начать заполнять анкету")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ================== /start ==================
+
+# ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
@@ -45,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user:
         await update.message.reply_text(
-            "Добро пожаловать в Lovia ❤️",
+            "❤️ Добро пожаловать в Lovia",
             reply_markup=registered_menu()
         )
     else:
@@ -56,11 +109,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=new_user_menu()
         )
 
-# ================== РЕГИСТРАЦИЯ ==================
+
+# ================= REGISTRATION =================
 
 async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Как тебя зовут?")
     context.user_data["step"] = "name"
+
 
 async def registration_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data.get("step")
@@ -76,52 +131,59 @@ async def registration_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["step"] = "city"
 
     elif step == "city":
-        name = context.user_data.get("name")
-        age = context.user_data.get("age")
+        name = context.user_data["name"]
+        age = context.user_data["age"]
         city = update.message.text
 
-        add_user(
-            telegram_id=update.effective_user.id,
-            name=name,
-            age=age,
-            city=city
-        )
+        add_user(update.effective_user.id, name, age, city)
 
         await update.message.reply_text(
-            "Регистрация завершена ❤️\nТеперь можешь смотреть анкеты!",
+            "Регистрация завершена ❤️",
             reply_markup=registered_menu()
         )
 
         context.user_data.clear()
 
-# ================== ПРОСМОТР АНКЕТ ==================
+
+# ================= VIEW PROFILES =================
 
 async def view_profiles(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_next_profile(update, context)
+    await update.message.reply_text(
+        "👀 Здесь будут анкеты (дальше добавим свайпы)",
+        reply_markup=registered_menu()
+    )
 
-# ================== PREMIUM 349 ⭐ ==================
+
+# ================= PREMIUM =================
 
 async def buy_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prices = [LabeledPrice("Premium Lovia", 349)]
+    prices = [LabeledPrice("Lovia Premium", 349)]
 
     await context.bot.send_invoice(
         chat_id=update.effective_chat.id,
         title="Lovia Premium",
         description="Безлимитный доступ ко всем функциям",
-        payload="premium_payment",
-        provider_token="",  # для Telegram Stars оставить пустым
+        payload="premium",
+        provider_token="",  # для Telegram Stars оставляем пустым
         currency="XTR",
         prices=prices,
     )
 
+
 async def precheckout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.pre_checkout_query
-    await query.answer(ok=True)
+    await update.pre_checkout_query.answer(ok=True)
+
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💎 Premium активирован! Спасибо ❤️")
+    activate_premium(update.effective_user.id)
 
-# ================== MAIN ==================
+    await update.message.reply_text(
+        "💎 Premium активирован!",
+        reply_markup=registered_menu()
+    )
+
+
+# ================= MAIN =================
 
 def main():
     create_tables()
@@ -151,6 +213,7 @@ def main():
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
